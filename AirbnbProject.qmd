@@ -1,0 +1,285 @@
+---
+title: "Airbnb Project STAT 250"
+author: Zack Dalley
+format:
+  html:
+    embed-resources: true
+editor: visual
+---
+
+**Load packages**
+
+```{r}
+#| warning: false
+library(tidyverse)
+library(leaflet)
+library(htmlwidgets)
+```
+
+# **IMPORT**
+
+```{r}
+
+listings <- read_csv("listings.csv", show_col_types = FALSE)
+price <- read.table(gzfile("calendar.csv.gz"), header = TRUE, sep = ",")
+```
+
+# **TIDY/TRANSFORM**
+
+**Tidy and transform listings dataset**
+
+```{r}
+
+listings <- listings |>
+  select(id, host_id, neighbourhood_cleansed, latitude, longitude, accommodates, bathrooms_text,
+         bedrooms, beds, room_type, number_of_reviews, review_scores_rating, review_scores_accuracy,
+         review_scores_cleanliness, review_scores_checkin, review_scores_communication, 
+         review_scores_location, review_scores_value) |>
+  mutate(avg_review_total = (review_scores_rating + review_scores_accuracy + review_scores_cleanliness +
+                                review_scores_checkin + review_scores_communication + review_scores_location +
+                                review_scores_value)) |>
+  mutate(avg_review_total2 = avg_review_total / 7) |>
+  mutate(listing_id = id) |>
+  mutate(bathrooms = case_when(bathrooms_text == "0 baths" | bathrooms_text == "0 shared baths" ~ 0,
+                               bathrooms_text == "Half-bath" | bathrooms_text == "Shared half-bath" | bathrooms_text == "1 bath" | bathrooms_text == "1 private bath" | bathrooms_text == "1 shared bath" ~ 1,
+                               bathrooms_text == "1.5 baths" | bathrooms_text == "1.5 shared baths" | bathrooms_text == "2 baths" | bathrooms_text == "2 shared baths" ~ 2,
+                               bathrooms_text == "2.5 baths" | bathrooms_text == "2.5 shared baths" | bathrooms_text == "3 baths" | bathrooms_text == "3 shared baths" ~ 3,
+                               bathrooms_text == "3.5 baths" | bathrooms_text == "4 baths" | bathrooms_text == "4 shared baths" ~ 4,
+                               bathrooms_text == "4.5 baths" | bathrooms_text == "4.5 shared baths" | bathrooms_text == "5 baths" | bathrooms_text == "5 shared baths" ~ 5,
+                               bathrooms_text == "5.5 baths" | bathrooms_text == "6 baths" | bathrooms_text == "6 shared baths" ~ 6,
+                               bathrooms_text == "6.5 baths" | bathrooms_text == "6.5 shared baths" | bathrooms_text == "7 baths" ~ 7,
+                               bathrooms_text == "7.5 baths" | bathrooms_text == "8 baths" | bathrooms_text == "8 shared baths" ~ 8,
+                               bathrooms_text == "8.5 baths" | bathrooms_text == "9 baths" ~ 9,
+                               bathrooms_text == "9.5 baths" ~ 10,
+                               bathrooms_text == "11 baths" ~ 11,
+                               bathrooms_text == "27.5 baths" ~ 28)) |>
+  mutate(neighborhood = neighbourhood_cleansed) |>
+  filter(bathrooms <= 3 & bedrooms <= 4) |>
+  na.omit() |>
+  select(!id) |>
+  select(!neighbourhood_cleansed)
+
+glimpse(listings)
+```
+
+**Tidy and transform price dataset**
+
+```{r}
+#| warning: false
+price <- price |>
+  filter(date >= '2024-06-01') |>
+  filter(date < '2024-09-01') |>
+  arrange(date)
+
+price <- price |>
+  select(listing_id, price) |>
+  distinct(listing_id, .keep_all = TRUE) |>
+  mutate(prices = as.numeric(gsub("\\$", "", price))) |>
+  select(!price)
+
+glimpse(price)
+```
+
+**Join listings and price datasets**
+
+```{r}
+
+san_diego <- inner_join(listings, price, by = join_by(listing_id)) |>
+  na.omit()
+glimpse(san_diego)
+```
+
+# **EDA & VISUALIZE**
+
+**Look at counts by listing type**
+
+```{r}
+
+ggplot(san_diego, aes(x = room_type)) +
+  geom_bar(fill = c("royalblue2", "purple3", "darkorange")) +
+  labs(x = "Room Type",
+       y = "Total Count",
+       title = "Totals by Room Type",
+       caption = "source: insideairbnb.com") +
+  geom_text(aes(label = after_stat(count)), stat = "count", vjust = -.15, color = "black", fontface = "bold") +
+  theme_minimal()
+
+```
+
+**Number of listings separated by number of bathrooms and bedrooms**
+
+```{r}
+
+ggplot(san_diego, aes(x = bathrooms)) +
+  geom_bar(fill = c("skyblue3")) +
+  facet_wrap(vars(bedrooms)) +
+  labs(x = "Number of Bathrooms",
+       y = "Count of Listings",
+       title = "Listings by Number of Bedrooms and Bathrooms",
+       caption = "source: insideairbnb.com") +
+  theme_bw()
+```
+
+**How does the price change as the number of people a listing can accommodate increases?**
+
+```{r}
+
+ggplot(san_diego, aes(x = accommodates, y = prices)) +
+  geom_point(color = "skyblue3") +
+  geom_jitter(color = "skyblue3") +
+  geom_smooth(formula = y ~ x, method = "loess", se = TRUE, color = "seagreen4") +
+  labs(x = "Number of People Listing Accommodates",
+       y = "Price of Listing",
+       title = "Price by Accommodation",
+       caption = "source: insideairbnb.com") +
+  theme_gray()
+```
+
+**Look at the price based on the number of bathrooms in a listing.**
+
+```{r}
+
+ggplot(san_diego, aes(x = bathrooms, y = prices)) +
+  geom_point() +
+  geom_jitter(color = "salmon") +
+  labs(x = "Bathrooms",
+       y = "Prices",
+       title = "Prices by Number of Bathrooms",
+       caption = "source: insideairbnb.com")
+```
+
+**Look at the price based on the number of bedrooms in a listing.**
+
+```{r}
+
+ggplot(san_diego, aes(x = bedrooms, y = prices)) +
+  geom_point() +
+  geom_jitter(color = "salmon") +
+  labs(x = "Bedrooms",
+       y = "Prices",
+       title = "Prices by Number of Bedrooms",
+       caption = "source: insideairbnb.com")
+```
+
+**View an interactive map of all of the listings we care about in San Diego with their prices and neighborhoods as pop-ups.**
+
+```{r}
+
+#map <- leaflet(san_diego) |>
+  #setView(lng = -117.16, lat = 32.72, zoom = 10)
+
+#map <- map |>
+  #addMarkers(lng = san_diego$longitude, lat = san_diego$latitude,
+             #popup = paste("<b>Neighborhood:<b> ", san_diego$neighborhood,
+                           #"<b>Price:<b> ", san_diego$prices))
+#map <- map |>
+  #addTiles()
+
+#map <- map |>
+  #addControl("zoom", position = "topleft") |>
+  #addControl("layers", position = "topleft")
+
+#map
+
+#saveWidget(map, file = "san_diego_map.html")
+```
+
+# **MODEL**
+
+**Correlation between price and different variables.**
+
+```{r}
+
+cor(san_diego$prices, san_diego$bedrooms)
+cor(san_diego$prices, san_diego$bathrooms)
+cor(san_diego$prices, san_diego$accommodates)
+```
+
+**Boxplots**
+
+```{r}
+
+boxplot(prices ~ bedrooms, data = san_diego)
+boxplot(prices ~ bathrooms, data = san_diego)
+boxplot(prices ~ accommodates, data = san_diego)
+
+ggplot(san_diego, aes(x = neighborhood, y = prices)) +
+  geom_boxplot(color = "darkseagreen") +
+  labs(x = "Neighborhood",
+       y = "Price",
+       title = "Prices by Neighborhoods",
+       caption = "source: insideairbnb.com")
+
+boxplot(prices ~ room_type, data = san_diego)
+```
+
+**ANOVA**
+
+```{r}
+
+sd_price_model <- san_diego |>
+  lm(formula = prices ~ bedrooms + bathrooms + accommodates + room_type + neighborhood)
+
+sd_price_model2 <- san_diego |>
+  lm(formula = prices ~ neighborhood + bedrooms + bathrooms + accommodates + room_type)
+
+anova(sd_price_model)
+anova(sd_price_model2)
+```
+
+**Checking Normality assumptions through qqplots and a histogram of residuals**
+
+```{r}
+
+model_residuals <- sd_price_model$residuals
+
+ggplot(sd_price_model, aes(x = model_residuals)) +
+  geom_histogram(binwidth = 25, fill = "skyblue3") +
+  labs(x = "Residuals",
+       y = "Count",
+       title = "Histogram of Residuals",
+       caption = "source: insideairbnb.com")
+
+qqnorm(model_residuals)
+qqline(model_residuals)
+```
+
+**Multiple Linear Regression**
+
+```{r}
+
+summary(sd_price_model)
+```
+
+**Price Prediction Based on Multiple Linear Regression Model**
+
+```{r}
+
+sd_price_model3 <- lm(formula = prices ~ bedrooms + bathrooms + accommodates, data = san_diego)
+
+summary(sd_price_model3)
+
+bedrooms <-  3
+bathrooms <- 2
+accommodates <- 8
+
+predict(sd_price_model3, data.frame(bedrooms = bedrooms, bathrooms = bathrooms, accommodates = accommodates))
+```
+
+# **COMMUNICATE**
+
+In doing this project, I hoped to better understand the different factors that affect the prices of Airbnbs, as well as the different locations in San Diego that are priced higher regardless of the other variables, such as number of bedrooms and bathrooms, how many people the Airbnb can accommodate, and what type of listing it is. I wanted to see what relationships there were between all the variables, and I also wanted to be able to predict the prices of Airbnbs based on these same factors.
+
+In making visualizations and doing exploratory data analysis, I found that as the number of bathrooms in an Airbnb increased, the price increased as well. The same held true for the number of people the Airbnb could accommodate and the number of bedrooms the Airbnb had. However, in certain locations, these factors don't matter quite as much.
+
+I found through doing an ANOVA test that neighborhood was one significant factor in the price of an Airbnb, as were number of bathrooms, number of bedrooms, number of people an Airbnb can accommodate, and type of listing. However, in areas closer to the beach, areas in downtown San Diego, areas close to things like the San Diego Zoo and other popular places, number of bedrooms and bathrooms, etc. didn't matter as much. You could have a much smaller Airbnb that costs the same as a larger Airbnb in less popular places. All of these things I found through my analysis made intuitive sense to me.
+
+Overall, through this project, I was able to understand the different factors that affect the price of Airbnbs, as well as get a better idea of where and what I could purchase to make the most money---based on location and other factors.
+
+# **LIMITATIONS**
+
+Things I'd do differently if I did it again:
+
+1.  Probably take the log of my data in order to make it follow a more normal distribution for the ANOVA model.
+2.  Look into doing a test other than ANOVA due to the fact that some of the factors may not be independent---meaning the number of bedrooms in an Airbnb could affect the number of bathrooms in an Airbnb, for example.
+3.  Possibly use something other that Linear Regression---for example, maybe logistic regression would give me more accurate predictions than a linear model.
